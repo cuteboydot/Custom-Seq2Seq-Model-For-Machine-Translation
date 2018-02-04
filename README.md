@@ -25,9 +25,9 @@ RNN encoder을 통해 얻은 encode_output, encode_stat를 입력으로 받고, 
 decoder 영역을 좀더 자세히 살펴보면 다음과 같다.  
 <img src="./img/seq2seq_2.png" width="80%">  
   
-### 2. Seq2Seq Model  
+### 2. Test result  
 #### 2.1 english sentence to korean pronunciation   
-<img src="./img/result_text.png" width="90%">  
+<img src="./img/result_text.png" width="70%">  
 
 #### 2.2 attention map   
 <img src="./img/result_attention.png" width="90%">  
