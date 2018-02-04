@@ -19,15 +19,18 @@ Tensorflow에서 제공하는 Seq2Seq 라이브러리를 이용한 구현방법�
 본 프로젝트는 위 프로젝트와 동일한 Seq2Seq (encoder-attention-decoder) 모델을 직접 구현한다.  
 입력 데이터는 영어 문장이고, 출력 데이터는 한국어 독음 문장이다.  
 RNN encoder을 통해 얻은 encode_output, encode_stat를 입력으로 받고, RNN decoder의 output(나의 예측값)과 입력값 사이의 가중치(attend)를 이용하여 학습한다.  
+전반적인 구조는 다음과 같다.    
+<img src="./img/seq2seq_1.png" width="80%">  
   
-<img src="./img/seq2seq_1.png" width="100%">  
-  
-<img src="./img/seq2seq_2.png" width="100%">  
+decoder 영역을 좀더 자세히 살펴보면 다음과 같다.  
+<img src="./img/seq2seq_2.png" width="80%">  
   
 ### 2. Seq2Seq Model  
-#### 2.1 실험 결과는 다음과 같다.  
-<img src="./img/result_text.png" width="120%">  
-<img src="./img/result_attention.png" width="100%">  
+#### 2.1 english sentence to korean pronunciation   
+<img src="./img/result_text.png" width="90%">  
+
+#### 2.2 attention map   
+<img src="./img/result_attention.png" width="90%">  
   
-#### 2.2 Training loss  
+#### 2.3 Training loss  
 <img src="./img/result_loss.png" width="90%">  
