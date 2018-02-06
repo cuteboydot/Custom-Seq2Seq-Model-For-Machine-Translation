@@ -370,62 +370,68 @@ with tf.Graph().as_default():
                 b_o = tf.get_variable("b_o", [voc_size_kor])
 
                 # Attention mechanism & Custom GRU decoder
-                attention_list = []
-                y_list = []
-                y_next = embed_dec[:, 0]  # test mode, [batch, e_dim]
-                s_next = tf.tanh(tf.matmul(state_enc_last, W_s))
+                ta_attention = tf.TensorArray(dtype=tf.float32, size=padded_kor_len)
+                ta_y_pred = tf.TensorArray(dtype=tf.float32, size=padded_kor_len)
+                s_init = tf.nn.dropout(tf.tanh(tf.matmul(state_enc_last, W_s)), keep_prob=keep_prob)
+                y_init = embed_dec[:, 0]        # [batch, e_dim]
+
                 output_enc_time_major = tf.transpose(output_enc, [1, 0, 2])     # [pad_eng, batch, state*2]
 
-                for t in range(padded_kor_len):
-                    y_prev = y_next
-                    s_prev = s_next
+                def kor_cond(step_k, *args):
+                    return step_k < padded_kor_len
 
-                    def func_get_e(h):
-                        e = tf.matmul(s_prev, W_a) + tf.matmul(h, U_a) + b_a    # [batch, state]
+                def kor_body(step_k, s_prev, y_prev, ta_att, ta_y):
+
+                    def func_get_e(h, s_):
+                        e = tf.matmul(s_, W_a) + tf.matmul(h, U_a) + b_a    # [batch, state]
                         e = tf.matmul(tf.tanh(e), V_a, name="e")                # [batch, 1]
                         return e
 
-                    e_tot = tf.map_fn(lambda h: func_get_e(h), output_enc_time_major)   # [pad_eng, batch, 1]
+                    e_tot = tf.map_fn(lambda h: func_get_e(h, s_prev), output_enc_time_major)   # [pad_eng, batch, 1]
                     e_tot = tf.transpose(e_tot, [1, 0, 2])                              # [batch, pad_eng, 1]
 
-                    # align
-                    exp = tf.exp(tf.reshape(e_tot, [-1, padded_eng_len]))               # [batch, pad_eng]
+                    exp = tf.exp(tf.reshape(e_tot, [-1, padded_eng_len]))       # [batch, pad_eng]
                     a = exp / tf.reshape(tf.reduce_sum(exp, 1), [-1, 1])
-                    a = tf.reshape(a, [-1, padded_eng_len, 1], name="a")                # [batch, pad_eng, 1]
-                    attention_list.append(a)
+                    a = tf.reshape(a, [-1, padded_eng_len, 1])                  # [batch, pad_eng, 1]
+                    ta_att = ta_att.write(step_k, a)
 
                     # context
                     c = tf.reduce_sum((output_enc * a), axis=1, name="c")  # [batch, state*2]
 
                     # reset gate
-                    r = tf.matmul(y_prev, W_r) + tf.matmul(s_prev, U_r) + tf.matmul(c, C_r)
-                    r = tf.sigmoid(r, name="r")  # [batch, state]
+                    r = tf.matmul(y_prev, W_r) + tf.matmul(s_prev, U_r) + tf.matmul(c, C_r) + b_r
+                    r = tf.nn.dropout(tf.sigmoid(r), keep_prob=keep_prob, name="r")  # [batch, state]
 
                     # update gate
-                    z = tf.matmul(y_prev, W_z) + tf.matmul(s_prev, U_z) + tf.matmul(c, C_z)
-                    z = tf.sigmoid(z, name="z")  # [batch, state]
+                    z = tf.matmul(y_prev, W_z) + tf.matmul(s_prev, U_z) + tf.matmul(c, C_z) + b_z
+                    z = tf.nn.dropout(tf.sigmoid(z), keep_prob=keep_prob, name="z")  # [batch, state]
 
                     # proposal state
-                    p = tf.matmul(y_prev, W_p) + tf.matmul((s_prev * r), U_p) + tf.matmul(c, C_p)
-                    p = tf.tanh(p, name="p")  # [batch, state]
+                    p = tf.matmul(y_prev, W_p) + tf.matmul((s_prev * r), U_p) + tf.matmul(c, C_p) + b_p
+                    p = tf.nn.dropout(tf.tanh(p), keep_prob=keep_prob, name="p")  # [batch, state]
 
                     # new state
-                    s_next = (1 - z) * s_prev + z * p  # [batch, state]
+                    s = (1 - z) * s_prev + z * p  # [batch, state]
 
                     # predict next y_t
-                    y = tf.matmul(y_prev, W_o) + tf.matmul(s_next, U_o) + tf.matmul(c, C_o)
+                    y = tf.matmul(y_prev, W_o) + tf.matmul(s, U_o) + tf.matmul(c, C_o) + b_o    # [batch, voc_kor]
+                    ta_y = ta_y.write(step_k, y)
 
-                    y_hat = tf.cast(tf.argmax(tf.nn.softmax(y), axis=1), dtype=tf.int32, name="y_hat")
+                    y_hat = tf.cast(tf.argmax(y, axis=1), dtype=tf.int32, name="y_hat")
                     y_next = tf.nn.embedding_lookup(embeddings_kor, y_hat, name="y_next")
-                    y_list.append(y)
 
-                    scope.reuse_variables()
+                    return step_k+1, s, y_next, ta_att, ta_y
 
-                attention = tf.convert_to_tensor(attention_list)  # [pad_kor, batch, pad_eng, 1]
-                attention = tf.squeeze(attention)  # [pad_kor, batch, pad_eng]
-                attention = tf.transpose(attention, [1, 0, 2], name="attention")  # [batch, pad_eng, pad_kor]
+                while_done = tf.while_loop(kor_cond, kor_body, [0, s_init, y_init, ta_y_pred, ta_attention])
 
-                hypothesis = tf.convert_to_tensor(y_list)  # [pad_kor, batch, voc_kor]
+                _, s_final, y_final, attention_tot, y_tot = while_done
+
+                attention = attention_tot.stack()   # [pad_kor, batch, pad_eng, 1]
+                attention = tf.squeeze(attention)   # [pad_kor, batch, pad_eng]
+                attention = tf.transpose(attention, [1, 0, 2], name="attention")    # [batch, pad_kor, pad_eng]
+                attention = tf.reshape(attention, [-1, padded_kor_len, padded_eng_len])
+
+                hypothesis = y_tot.stack()          # [pad_kor, batch, voc_kor]
                 hypothesis = tf.transpose(hypothesis, [1, 0, 2], name="hypothesis")  # [batch, pad_kor, voc_kor]
 
             with tf.name_scope("predict_and_optimizer"):
