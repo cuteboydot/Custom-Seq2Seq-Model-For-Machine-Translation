@@ -33,7 +33,7 @@ output 예측값 1개당 input의 attention을 구해야 한다. 그리고 이�
 우선 attention을 구하기 위한 loop는 tf.map_fn을 이용하여 구현하였다.  
   
 **decoder loop의 계산을 구현하는 과정에서 다음과 같은 2가지 버전으로 구현하였다.  
-python for statement : CustomSeq2Seq_v1.py
+python for statement : CustomSeq2Seq_v1.py  
 tf.while_loop : CustomSeq2Seq_v2.py**
 
   
